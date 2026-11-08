@@ -1,0 +1,17 @@
+{
+  "name": "师傅来了· AI系统开发运营陪跑",
+  "short_name": "师傅来了",
+  "description": "师傅来了· AI系统开发运营陪跑（添加到主屏幕即可当 App 使用）",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
+  "background_color": "#FCFAF4",
+  "theme_color": "#946B48",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any apple-touch-icon" }
+  ]
+}

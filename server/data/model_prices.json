@@ -1,0 +1,59 @@
+{
+  "last_updated": "2026-11-06T16:34:02+08:00",
+  "source_url": "https://ark.volcengine.com/region:cn-beijing/docs/model-pricing.md",
+  "recommendation": {
+    "cheapest": {
+      "model": "doubao-seed-2.0-mini",
+      "family": "doubao-seed",
+      "generation": "2.0",
+      "price_in": 0.2,
+      "price_out": 2.0
+    },
+    "moderate": {
+      "model": "doubao-seed-2.1-turbo",
+      "family": "doubao-seed",
+      "generation": "2.1",
+      "price_in": 3.0,
+      "price_out": 15.0
+    },
+    "high": {
+      "model": "doubao-seed-2.1-pro",
+      "family": "doubao-seed",
+      "generation": "2.1",
+      "price_in": 6.0,
+      "price_out": 30.0
+    }
+  },
+  "video_models": {
+    "doubao-seedance-1.0-pro-fast": {
+      "label": "Seedance 1.0 Pro Fast（快速）",
+      "price_in": 4.2,
+      "price_out": 2.1,
+      "needs_provisioning": true
+    },
+    "doubao-seedance-1.0-pro": {
+      "label": "Seedance 1.0 Pro（影视级 1080p）",
+      "price_in": 15.0,
+      "price_out": 7.5,
+      "needs_provisioning": true
+    },
+    "doubao-seedance-2.0-mini": {
+      "label": "Seedance 2.0 Mini（轻量）",
+      "price_in": 23.0,
+      "price_out": 14.0,
+      "needs_provisioning": true
+    },
+    "doubao-seedance-2.0-fast": {
+      "label": "Seedance 2.0 Fast",
+      "price_in": 37.0,
+      "price_out": 22.0,
+      "needs_provisioning": true
+    },
+    "doubao-seedance-2.5": {
+      "label": "Seedance 2.5（30s 超长叙事）",
+      "price_in": 70.0,
+      "price_out": 42.0,
+      "needs_provisioning": true
+    }
+  }
+}

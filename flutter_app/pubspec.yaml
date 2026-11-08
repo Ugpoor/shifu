@@ -1,0 +1,28 @@
+name: hitl_coach
+description: 协同推演陪跑系统 · Flutter客户端（双人协同聊天 + 任务看板 + HITL双通路断点填表）
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # 网络层：Dio 统一封装（接口、SSE流式、重试、超时、拦截器）
+  dio: ^5.4.0
+  # IM通信底座：OpenIM Flutter 开源SDK（私有化自托管；经 ImBridge 抽象层隔离）
+  flutter_openim_sdk: ^3.7.0
+  # 本地存储：Hive（消息缓存、任务状态本地快照）
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  # 状态管理
+  provider: ^6.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

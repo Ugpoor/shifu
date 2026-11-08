@@ -1,0 +1,41 @@
+# ── Secrets / credentials (NEVER commit) ──
+.env
+server/data/model_tiers.json
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ── Node dev tooling (not needed for backend deploy) ──
+node_modules/
+
+# ── Runtime database files (created at runtime by db.py) ──
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# ── Logs ──
+*.log
+
+# ── OS / editor ──
+.DS_Store
+Thumbs.db
+
+# ── WorkBuddy project data (local only) ──
+.workbuddy/
+
+# ── Dev artifacts (screenshots, backups) ──
+screenshots/
+.revision-backups/
+
+# ── Packaging ──
+*.tar.gz
+*.zip
+dist/
+build/
