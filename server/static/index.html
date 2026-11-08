@@ -48,7 +48,7 @@ nav .item svg{width:24px;height:24px}
 nav .item span{font-size:11px}
 nav .dot{position:absolute;top:4px;right:calc(50% - 18px);min-width:15px;height:15px;line-height:15px;border-radius:8px;background:var(--danger);color:#fff;font-size:9px;text-align:center;padding:0 4px;display:none}
 /* ── 列表条目（微信式信息流·浅色）── */
-.cell{background:var(--card);display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:.5px solid var(--line);cursor:pointer;box-shadow:var(--card-shadow);position:relative}
+.cell{background:var(--card);display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:.5px solid var(--line);cursor:pointer;box-shadow:var(--card-shadow);position:relative;touch-action:manipulation}
 .cell:active{background:#efe9dc}
 .cell .avatar{width:46px;height:46px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:600}
 .cell .main{flex:1;min-width:0}
@@ -959,10 +959,22 @@ function cellHtml(r){
   const themeChip=r.theme?`<span class="tg-chip theme">主题·${esc(r.theme)}</span>`:'';
   const catChip=r.category?`<span class="tg-chip tag" style="background:#E6F1FB;color:#185FA5">${esc(catName(r.category))}</span>`:'';
   const chips=(themeChip||tags||catChip)?`<div class="tags-line">${catChip}${themeChip}${tags}</div>`:'';
-  return `<div class="cell" onclick="openChat('${r.room_id}')">
+  return `<div class="cell" data-rid="${r.room_id}">
     <div class="avatar" style="background:${colorOf(r.room_id)}">${esc(r.title[0]||'话')}</div>
     <div class="main"><div class="t"><b>${esc(r.title)}</b>${n?`<span class="badge">${n}</span>`:''}</div>
     <div class="d">${mode}${esc(experts||'协作专家')} · 任务${r.tasks.length}</div>${chips}</div></div>`;
+}
+function refreshChatBadges(){
+  // 仅在原位更新已有条目的未读徽标，不重建 DOM（避免移动端点击被重建吃掉 / 滚动跳动）
+  const el=document.getElementById('chatList'); if(!el)return;
+  for(const r of roomsCache){
+    if(r.noAccess)continue;
+    const cell=el.querySelector('.cell[data-rid="'+CSS.escape(r.room_id)+'"]'); if(!cell)continue;
+    const n=waitingCount(r);
+    let b=cell.querySelector('.badge');
+    if(n>0){ if(!b){ b=document.createElement('span'); b.className='badge'; const t=cell.querySelector('.t'); if(t)t.appendChild(b); } b.textContent=n; }
+    else if(b){ b.remove(); }
+  }
 }
 function renderChat(){
   const el=document.getElementById('chatList');
@@ -1033,7 +1045,7 @@ function renderChatFilter(){
     return kind?{r,kind,label,score:kind==='tag'?3:kind==='theme'?2:1}:null;
   }).filter(Boolean).sort((a,b)=>b.score-a.score);
   if(!scored.length){body.innerHTML='<div class="empty">没有匹配「'+esc(q)+'」的话题</div>';return;}
-  body.innerHTML=scored.map(s=>`<div class="fm-res" onclick="closeChatFilter();openChat('${s.r.room_id}')">
+  body.innerHTML=scored.map(s=>`<div class="fm-res" data-rid="${s.r.room_id}">
     <div class="avatar" style="background:${colorOf(s.r.room_id)}">${esc((s.r.title[0]||'话'))}</div>
     <div class="main"><div class="mt">${esc(s.r.title)}</div><div class="md">${esc((s.r.members||[]).filter(m=>m.role==='expert').map(m=>m.name).join('、')||'协作专家')}</div></div>
     <span class="fm-mtag ${s.kind}">${s.kind==='tag'?'标签·'+(s.label||''):s.kind==='theme'?'主题·'+(s.label||''):'内容'}</span></div>`).join('');
@@ -1091,7 +1103,7 @@ async function openPerson(accountId){
     if(!shared.length) html+=`<div class="empty">暂无共同参与的话题</div>`;
     else html+=shared.map(r=>{
       const n=waitingCount(r);
-      return `<div class="cell" onclick="openChat('${r.room_id}')">
+      return `<div class="cell" data-rid="${r.room_id}">
         <div class="avatar" style="border-radius:12px;background:${r.color||AV_COLORS[0]}">${esc((r.title||'题')[0]||'题')}</div>
         <div class="main"><div class="t"><b>${esc(r.title)}</b></div><div class="d">${r.members.length} 人参与${n?` · ${n} 待办`:''}</div></div>
         <div class="m-arrow">›</div></div>`;
@@ -2248,6 +2260,14 @@ function goBack(){
 })();
 buildLoginPicker();
 showTab('chat');
+/* 移动端：对话条目改用事件委托（点击在稳定的 #chatList / #fmBody 容器上处理），
+   即使列表被刷新重建也不会丢失点击；同时避免 8s 自动刷新重建 DOM 时吞掉点击。 */
+const _chatListEl=document.getElementById('chatList');
+if(_chatListEl)_chatListEl.addEventListener('click',e=>{const c=e.target.closest('.cell');if(c&&c.dataset.rid)openChat(c.dataset.rid);});
+const _fmBodyEl=document.getElementById('fmBody');
+if(_fmBodyEl)_fmBodyEl.addEventListener('click',e=>{const c=e.target.closest('.fm-res');if(c&&c.dataset.rid){closeChatFilter();openChat(c.dataset.rid);}});
+const _personTopicsEl=document.getElementById('personTopics');
+if(_personTopicsEl)_personTopicsEl.addEventListener('click',e=>{const c=e.target.closest('.cell');if(c&&c.dataset.rid)openChat(c.dataset.rid);});
 if(ACCOUNT&&ACCOUNT.token){
   const l=document.getElementById('login');if(l)l.classList.add('hide');
   // 旧登录态的 ACCOUNT 可能缺 account_id 等字段：先用 /auth/me 补全，再进应用
@@ -2257,7 +2277,12 @@ if(ACCOUNT&&ACCOUNT.token){
       ACCOUNT=null; showLogin();
     });
 }
-setInterval(()=>{if(ACCOUNT&&ACCOUNT.token){loadRooms().then(()=>{renderBadges();if(state.tab==='chat')renderChat();if(state.tab==='panel')renderPanel();}).catch(()=>{});}},8000);
+setInterval(()=>{if(ACCOUNT&&ACCOUNT.token){loadRooms().then(()=>{renderBadges();
+  // 仅当停在对应主视图且未打开任何二级页时才更新：聊天列表就地刷新未读徽标（不重建 DOM），
+  // 任务面板整体重渲染（此时无二级页打开，不会吞掉点击）；二级页打开期间一律不动底层 DOM。
+  if(state.tab==='chat'&&pageStack.length===0)refreshChatBadges();
+  if(state.tab==='panel'&&pageStack.length===0)renderPanel();
+}).catch(()=>{});}},8000);
 </script>
 <script>
 /* PWA：注册 Service Worker，使「添加到主屏幕」后获得类原生体验（秒开/离线/推送基础） */
