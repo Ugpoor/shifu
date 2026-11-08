@@ -217,7 +217,9 @@ _PWA_FILES = {
 
 
 def _pwa_file(path: str, media: str):
-    return FileResponse(path, media_type=media)
+    # no-cache：浏览器每次都向服务端校验（条件请求），保证 sw.js / manifest 等即时生效，
+    # 不会因启发式缓存把旧版本「钉死」在客户端。
+    return FileResponse(path, media_type=media, headers={"Cache-Control": "no-cache"})
 
 
 for _p, (_f, _m) in _PWA_FILES.items():
@@ -230,4 +232,6 @@ app.mount("/demo", StaticFiles(directory="static", html=True), name="demo")
 
 @app.get("/")
 def root():
-    return FileResponse("static/index.html")
+    # no-cache：浏览器每次都向服务端校验最新 index.html（配合 SW 的 network-first+no-cache），
+    # 杜绝「服务端已更新、浏览器仍显示旧版（精简/历史版本）」的缓存错乱。
+    return FileResponse("static/index.html", headers={"Cache-Control": "no-cache"})
