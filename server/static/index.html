@@ -200,6 +200,17 @@ button.plain.sm{padding:6px 12px;font-size:13px;border-radius:8px;flex-shrink:0}
 .field .opt{display:flex;align-items:center;gap:7px;font-size:14.5px;margin:7px 0;color:var(--ink)}
 .field input[type=text],.field input[type=number],.field textarea,.field select{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;font-size:14px;outline:none;background:#fff;color:var(--ink)}
 .field textarea{min-height:54px;resize:vertical}
+/* 柔化输入框：无硬边框，偏淡暖底纹，充足留白，聚焦仅切换底色+文字光标 */
+.field input.soft-in{width:100%;border:none;outline:none;background:#F3EEE4;color:#7A6B58;font-size:15px;line-height:1.5;padding:12px 14px;margin:4px 0;border-radius:10px;box-sizing:border-box}
+.field input.soft-in::placeholder{color:#A99A82;opacity:1}
+.field input.soft-in:focus{background:#FBF6EC;color:var(--ink)}
+.field input.soft-in:read-only{background:#EFEBE3;color:#9A8E7C}
+/* 数据备份清单：可收缩成一个条目 */
+.bk-collapse{border-top:.5px solid var(--line)}
+.bk-head{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;cursor:pointer;color:var(--sub);font-size:13px;background:var(--card)}
+.bk-head:active{background:#efe9dc}
+.bk-arrow{transition:transform .2s;display:inline-block;font-size:13px}
+.bk-body{border-top:.5px solid var(--line)}
 button.primary{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 18px;font-size:14.5px;cursor:pointer;box-shadow:0 1px 2px rgba(90,75,60,.15)}
 button.plain{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:9px 16px;font-size:14px;cursor:pointer}
 button.dangerbtn{background:#fff;color:var(--danger);border:1px solid var(--danger);border-radius:10px;padding:9px 16px;font-size:14px;cursor:pointer}
@@ -543,6 +554,7 @@ const AV_COLORS = ['#07c160','#576b95','#e8684a','#946B48','#9270ca','#5b8ff9','
 let PROFILE = JSON.parse(localStorage.getItem('hitl_profile') || 'null');
 let ACCOUNT = JSON.parse(localStorage.getItem('hitl_account') || 'null');
 let state = { tab:'chat', chatRoom:null, panelSeg:'todo', panelSort:'time', panelFilters:[], panelThemeScope:null, panelRoomScope:null, person:null, agentId:null, taskId:null, settingsRoom:null, filterMenuOpen:false, sortMenuOpen:false, chatFilter:'', collapsedThemes:new Set(), createCat:'' };
+let bkListOpen=false;   // 设置页「数据备份」清单展开态
 const pageStack = [];
 
 function toast(t){const el=document.getElementById('toast');el.textContent=t;el.style.display='block';setTimeout(()=>el.style.display='none',2400);}
@@ -818,14 +830,14 @@ async function renderCreateCard(){
   const b=document.getElementById('taskBody');
   b.innerHTML=`<div class="card">
     <h3 style="margin-bottom:12px;color:var(--ink)">创建新话题房间</h3>
-    <div class="field"><label>话题标题</label><input id="ncTitle" value="某项目投资测算协同咨询"></div>
+    <div class="field"><label>话题标题</label><input id="ncTitle" class="soft-in" value="某项目投资测算协同咨询"></div>
     <div class="field"><label>类目</label>
       <div id="catSelector" class="cat-sel"></div>
       <div class="field-tip">点选类目；「＋ 新建类目」可新增，「✎」重命名、「✕」删除（系统类目🔒不可删）。</div>
     </div>
-    <div class="field"><label>主题（目录分组）</label><input id="ncTheme" list="themeList" placeholder="如 投资测算 / 青少年编程"><datalist id="themeList">${themes.map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div>
-    <div class="field"><label>主持人名称</label><input id="ncHost" value="${esc((ACCOUNT&&ACCOUNT.nickname)||PROFILE?.name||'王咨询师')}"></div>
-    <div class="field"><label>协作专家名称</label><input id="ncExpert" value="李专家"></div>
+    <div class="field"><label>本对话所属分类</label><input id="ncTheme" class="soft-in" list="themeList" placeholder="如 投资测算 / 青少年编程"><datalist id="themeList">${themes.map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div>
+    <div class="field"><label>主持人名称</label><input id="ncHost" class="soft-in" value="${esc((ACCOUNT&&ACCOUNT.nickname)||PROFILE?.name||'王咨询师')}"></div>
+    <div class="field"><label>协作专家名称</label><input id="ncExpert" class="soft-in" value="李专家"></div>
     <button class="primary" style="width:100%" onclick="doCreate()">创建</button>
   </div>`;
   refreshCatSelectors();
@@ -895,6 +907,9 @@ async function doCreate(){
   if(ACCOUNT&&ACCOUNT.account_id)body.account_id=ACCOUNT.account_id;
   const d=await api('/rooms',{method:'POST',body:JSON.stringify(body)});
   setProfile({memberId:d.host.member_id,role:'host',name:d.host.name,activeRoom:d.room_id});
+  // 套用「所有对话默认讨论模式」（本地偏好，作用于新建对话）
+  const defMode=getPref('agent_default_response_mode','round_robin');
+  try{ await api(`/rooms/${d.room_id}/flow-settings`,{method:'POST',body:JSON.stringify({response_mode:defMode})}); }catch(e){}
   openChat(d.room_id); toast(`话题已创建：${d.room_id}`); refreshAll();
 }
 
@@ -1648,6 +1663,13 @@ function renderSchemaForm(schema,mountId,onSubmit){
 /* ────────── Tab4 设置（四大分区）────────────────── */
 let settingsRoom=null, flowCache=null, meetingCache=null;
 const MODE_ICON={round_robin:'🔁',host_only:'🎤',guest_only:'🧑‍💼',robert_rules:'📋'};
+/* 讨论模式选项（全局默认与每个会话设置共用同一套）*/
+const RESPONSE_MODE_OPTS=[
+  {k:'round_robin',t:'自由讨论',d:'任何人发言，Agent 都按序回应（默认）'},
+  {k:'host_only',t:'仅回应主持人',d:'只回应主持人（咨询师）发言，嘉宾发言仅留痕'},
+  {k:'guest_only',t:'仅回应嘉宾',d:'只回应协作专家发言，主持人发言作为旁听记录'},
+  {k:'robert_rules',t:'罗伯特议事法则',d:'一轮内每人只发言一次，全员说完后 Agent 统一回应'},
+];
 const MODE_LABEL={round_robin:'轮询所有人',host_only:'只回应主持人',guest_only:'只回应嘉宾',robert_rules:'罗伯特议事法则'};
 const REPLY_POLICY={reply_all:'回应所有人',reply_host:'只回应主持人',join_round:'参与轮训（每轮作为最后一名发言，负责总结、接收指令）'};
 const REPLY_FORMAT={natural:'自然文本',brief:'简要摘要',json:'JSON结构化（表单任务优先JSON）'};
@@ -1770,6 +1792,14 @@ async function renderSettings(){
     ${Object.keys(REPLY_POLICY).map(k=>`
       <div class="optcard ${replyPol===k?'on':''}" onclick="setPref('agent_reply_policy','${k}');renderSettings()">
         <div class="o-main"><div class="o-t">${REPLY_POLICY[k]}</div></div><div class="o-ck"></div></div>`).join('')}`;
+  /* 所有对话默认讨论模式（全局默认，作用于新建对话）*/
+  const defMode=getPref('agent_default_response_mode','round_robin');
+  meetingSec+=`
+    <div class="sub-title">所有对话默认讨论模式</div>
+    <div class="note" style="padding-top:0">新建对话时套用此默认；已有对话可在各自「会话设置」中单独调整。</div>`+
+    RESPONSE_MODE_OPTS.map(o=>`
+    <div class="optcard ${defMode===o.k?'on':''}" onclick="saveDefaultMode('${o.k}')">
+      <div class="o-main"><div class="o-t">${MODE_ICON[o.k]||''} ${o.t}</div><div class="o-d">${o.d}</div></div><div class="o-ck"></div></div>`).join('');
   if(rid&&flow){
     meetingSec+=`
     <div class="sub-title">发言模式（本话题）</div>`+
@@ -1823,7 +1853,12 @@ async function renderSettings(){
       <div class="s-d">每次代码修订自动快照数据库；亦可手动备份。结构备份仅含建表语句，全量备份可一键恢复。</div></div>
     </div>
     <div style="padding:0 16px 6px"><button class="plain" style="width:100%" onclick="createDbBackup()">＋ 立即备份当前数据库</button></div>
-    <div id="dbBkList">${(items.length?items:[]).map(b=>`
+    <div class="bk-collapse">
+      <div class="bk-head" onclick="toggleBkList()">
+        <span>备份清单（${items.length} 份）</span>
+        <span id="bkArrow" class="bk-arrow" style="${bkListOpen?'transform:rotate(90deg)':''}">▸</span>
+      </div>
+      <div id="dbBkList" class="bk-body" style="display:${bkListOpen?'block':'none'}">${(items.length?items:[]).map(b=>`
       <div class="srow" style="align-items:center">
         <div class="s-main"><div class="s-t">${b.pinned?'⭐ ':''}${esc(b.name)} ${b.pinned?'<span class=\"tag finished\" style=\"font-size:11px\">已收藏</span>':''}</div>
           <div class="s-d">${b.has_data?'全量':'仅结构'} · 表 ${b.tables!=null?b.tables:'?'} · ${b.db_size?((b.db_size/1024).toFixed(1)+'KB'):''} · ${new Date((b.created_at||0)*1000).toLocaleString()}${b.label?(' · '+esc(b.label)):''}</div></div>
@@ -1832,7 +1867,8 @@ async function renderSettings(){
           ${b.has_data?`<button class="plain" style="padding:4px 8px;font-size:12px" onclick="restoreDbBackup('${b.name}')">恢复</button>`:''}
           <button class="plain" style="padding:4px 8px;font-size:12px" onclick="downloadDbBackup('${b.name}',${!!b.has_data})">下载</button>
         </div>
-      </div>`).join('')||'<div class="empty" style="padding:16px 0">暂无备份</div>'}</div>`;
+      </div>`).join('')||'<div class="empty" style="padding:16px 0">暂无备份</div>'}</div>
+    </div>`;
   }catch(e){ dbBk=''; }
 
   el.innerHTML=acctHtml+picker+dbBk+surfaceSec+videoSec+catSec+agentSec+meetingSec+otherSec;
@@ -1864,11 +1900,25 @@ async function setVideoModel(key){
 }
 /* 数据备份：立即备份当前数据库（全量）*/
 async function createDbBackup(){
+  bkListOpen=true;   // 新建后展开清单，便于看到刚生成的备份
   try{
     const r=await api('/admin/db-backups',{method:'POST',body:JSON.stringify({label:'manual',include_data:true})});
     toast('已创建备份：'+(r.name||''));
     renderSettings();
   }catch(e){ toast('备份失败：'+(e&&e.message||e)); }
+}
+/* 数据备份：清单折叠 / 展开（收缩成一个条目）*/
+function toggleBkList(){
+  bkListOpen=!bkListOpen;
+  const el=document.getElementById('dbBkList');
+  const ar=document.getElementById('bkArrow');
+  if(el)el.style.display=bkListOpen?'block':'none';
+  if(ar)ar.style.transform=bkListOpen?'rotate(90deg)':'';
+}
+/* 所有对话默认讨论模式：写入本地偏好，作为新建对话的默认 response_mode */
+function saveDefaultMode(mode){
+  setPref('agent_default_response_mode',mode);
+  renderSettings();
 }
 /* 数据备份：收藏/取消收藏某份备份（收藏后永不被自动清理）*/
 async function starBackup(name,pinned){
@@ -1957,12 +2007,6 @@ async function openChatMenu(){
     const titleReadOnly = isHost ? '' : 'readonly placeholder="仅主持人可修改"';
     const curMode=flow.response_mode||'round_robin';
     const silent=!!room.agent_silent;
-    const modeOpts=[
-      {k:'round_robin',t:'自由讨论',d:'任何人发言，Agent 都按序回应（默认）'},
-      {k:'host_only',t:'仅回应主持人',d:'只回应主持人（咨询师）发言，嘉宾发言仅留痕'},
-      {k:'guest_only',t:'仅回应嘉宾',d:'只回应协作专家发言，主持人发言作为旁听记录'},
-      {k:'robert_rules',t:'罗伯特议事法则',d:'一轮内每人只发言一次，全员说完后 Agent 统一回应'},
-    ];
     const memberRows=(room.members||[]).map(m=>{
       const initial=esc((m.name[0]||'人').toUpperCase());
       const roleTxt=m.role==='host'?'主持人（咨询师）':m.role==='guest'?'协作成员':'协作专家';
@@ -1973,13 +2017,13 @@ async function openChatMenu(){
     b.innerHTML=`
       <div class="card">
         <div class="section-title" style="padding-left:0">话题名称</div>
-        <div class="field"><input id="ssTitle" value="${esc(room.title)}" ${titleReadOnly}></div>
+        <div class="field"><input id="ssTitle" class="soft-in" value="${esc(room.title)}" ${titleReadOnly}></div>
         ${isHost?`<button class="primary" style="width:100%" onclick="ssSaveTitle('${rid}')">保存名称</button>`:'<div class="note">仅主持人可修改话题名称</div>'}
       </div>
       <div class="card" style="padding:6px 0 0">
         <div class="section-title">讨论模式</div>
-        ${modeOpts.map(o=>`<div class="optcard ${curMode===o.k?'on':''}" onclick="ssSetMode('${rid}','${o.k}')">
-          <div class="o-main"><div class="o-t">${o.t}</div><div class="o-d">${o.d}</div></div><div class="o-ck"></div></div>`).join('')}
+        ${RESPONSE_MODE_OPTS.map(o=>`<div class="optcard ${curMode===o.k?'on':''}" onclick="ssSetMode('${rid}','${o.k}')">
+          <div class="o-main"><div class="o-t">${MODE_ICON[o.k]||''} ${o.t}</div><div class="o-d">${o.d}</div></div><div class="o-ck"></div></div>`).join('')}
       </div>
       <div class="card" style="padding:6px 0">
         <div class="section-title">会议AI代理</div>
@@ -1993,12 +2037,12 @@ async function openChatMenu(){
       </div>
       <div class="card" style="padding:14px">
         <div class="section-title" style="padding-left:0">主题与标签</div>
-        <div class="field"><label>主题（目录式分组的一级目录）</label>
-          <input id="ssTheme" list="ssThemeList" value="${esc(room.theme||'')}" placeholder="如 投资测算 / 青少年编程" ${isHost?'':'readonly'}>
+        <div class="field"><label>本对话所属分类</label>
+          <input id="ssTheme" class="soft-in" list="ssThemeList" value="${esc(room.theme||'')}" placeholder="如 投资测算 / 青少年编程" ${isHost?'':'readonly'}>
           <datalist id="ssThemeList">${[...new Set(roomsCache.map(r=>r.theme).filter(Boolean))].map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
         </div>
         <div class="field"><label>主题标签（逗号分隔，跨主题筛选用）</label>
-          <input id="ssTags" value="${esc((room.tags||[]).join('，'))}" placeholder="如 风险，假设，决策" ${isHost?'':'readonly'}>
+          <input id="ssTags" class="soft-in" value="${esc((room.tags||[]).join('，'))}" placeholder="如 风险，假设，决策" ${isHost?'':'readonly'}>
         </div>
         ${isHost?`<button class="primary" style="width:100%" onclick="ssSaveMeta('${rid}')">保存主题与标签</button>`:'<div class="note">仅主持人可设置主题与标签</div>'}
       </div>
