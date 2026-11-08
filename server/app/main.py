@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from . import config as cfg
 from . import db, events, memory_extractor, model_tier
 from .routers import (auth, chat, contacts, db_backup, memory, rooms, tasks,
-                      webhooks, settings)
+                      webhooks, settings, categories)
 
 
 @asynccontextmanager
@@ -76,6 +76,7 @@ app.include_router(memory.router)
 app.include_router(auth.router)
 app.include_router(settings.router)
 app.include_router(contacts.router)
+app.include_router(categories.router)
 app.include_router(db_backup.router_user)
 app.include_router(db_backup.router_internal)
 

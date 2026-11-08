@@ -126,6 +126,18 @@ nav .dot{position:absolute;top:4px;right:calc(50% - 18px);min-width:15px;height:
 .tg-chip{font-size:10.5px;padding:1px 7px;border-radius:9px;background:#f0ebdd;color:#8a6b45}
 .tg-chip.theme{background:#e7f0ff;color:#2b6cff}
 .tg-chip.tag{background:#fff0e6;color:#c2520a}
+/* ── 创建话题 / 设置页：话题类目选择器 ── */
+.cat-sel{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.cat-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);border-radius:18px;background:#fff;font-size:13px;color:var(--ink);cursor:pointer;user-select:none;transition:.15s}
+.cat-chip:hover{border-color:var(--accent)}
+.cat-chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.cat-chip.active .cat-x{color:#fff}
+.cat-add{border-style:dashed;color:var(--sub)}
+.cat-x{border:none;background:transparent;cursor:pointer;font-size:13px;line-height:1;padding:0 2px;color:var(--sub)}
+.cat-chip.active .cat-x:hover{color:#fff}
+.cat-x:hover{color:#c2520a}
+.cat-lock{font-size:11px;opacity:.7}
+.field-tip{font-size:11.5px;color:var(--sub);margin-top:6px;line-height:1.5}
 .chatinput .send{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:14px;cursor:pointer}
 .chatinput .send:disabled{opacity:.5}
 .chatinput{position:relative}
@@ -527,7 +539,7 @@ const AVATARS = ['🙂','😎','🤓','🧑‍💼','👩‍💼','🧑‍🏫',
 const AV_COLORS = ['#07c160','#576b95','#e8684a','#946B48','#9270ca','#5b8ff9','#ff9d4d','#13c2c2'];
 let PROFILE = JSON.parse(localStorage.getItem('hitl_profile') || 'null');
 let ACCOUNT = JSON.parse(localStorage.getItem('hitl_account') || 'null');
-let state = { tab:'chat', chatRoom:null, panelSeg:'todo', panelSort:'time', panelFilters:[], panelThemeScope:null, panelRoomScope:null, person:null, agentId:null, taskId:null, settingsRoom:null, filterMenuOpen:false, sortMenuOpen:false, chatFilter:'', collapsedThemes:new Set() };
+let state = { tab:'chat', chatRoom:null, panelSeg:'todo', panelSort:'time', panelFilters:[], panelThemeScope:null, panelRoomScope:null, person:null, agentId:null, taskId:null, settingsRoom:null, filterMenuOpen:false, sortMenuOpen:false, chatFilter:'', collapsedThemes:new Set(), createCat:'' };
 const pageStack = [];
 
 function toast(t){const el=document.getElementById('toast');el.textContent=t;el.style.display='block';setTimeout(()=>el.style.display='none',2400);}
@@ -781,34 +793,101 @@ function mrow(name, title, desc, val, onclick, arrow=true, plain=false){
 
 /* ────────── 创建话题 ────────── */
 function showCreate(){ openPage('page-task'); document.getElementById('taskTitle').textContent='创建话题'; renderCreateCard(); }
-function renderCreateCard(){
+let __catList=[];           // 当前账号类目列表（来自 /categories）
+let catMap={};              // code → 显示名（用于房间卡片/分组解析）
+async function loadCategories(){
+  try{ __catList=await api('/categories'); catMap={}; __catList.forEach(c=>catMap[c.code]=c.name); }
+  catch(e){ __catList=[]; }
+  // 默认选中类目：若当前 createCat 不在列表中（如被删），回退到普通话题('')
+  if(!__catList.some(c=>c.code===state.createCat)) state.createCat='';
+  refreshCatSelectors();
+  return __catList;
+}
+function catName(code){
+  if(catMap && catMap[code]) return catMap[code];
+  if(code==='software_revision') return '软件修订';
+  if(!code) return '普通话题';
+  return code;
+}
+async function renderCreateCard(){
+  await loadCategories();
   const themes=[...new Set(roomsCache.map(r=>r.theme).filter(Boolean))];
   const b=document.getElementById('taskBody');
   b.innerHTML=`<div class="card">
     <h3 style="margin-bottom:12px;color:var(--ink)">创建新话题房间</h3>
     <div class="field"><label>话题标题</label><input id="ncTitle" value="某项目投资测算协同咨询"></div>
     <div class="field"><label>类目</label>
-      <div style="display:flex;gap:14px;margin-top:4px">
-        <label class="opt"><input type="radio" name="ncCat" value="" checked onchange="onCatChange()">普通话题</label>
-        <label class="opt"><input type="radio" name="ncCat" value="software_revision" onchange="onCatChange()">软件修订</label>
-      </div></div>
+      <div id="catSelector" class="cat-sel"></div>
+      <div class="field-tip">点选类目；「＋ 新建类目」可新增，「✎」重命名、「✕」删除（系统类目🔒不可删）。</div>
+    </div>
     <div class="field"><label>主题（目录分组）</label><input id="ncTheme" list="themeList" placeholder="如 投资测算 / 青少年编程"><datalist id="themeList">${themes.map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div>
     <div class="field"><label>主持人名称</label><input id="ncHost" value="${esc((ACCOUNT&&ACCOUNT.nickname)||PROFILE?.name||'王咨询师')}"></div>
     <div class="field"><label>协作专家名称</label><input id="ncExpert" value="李专家"></div>
     <button class="primary" style="width:100%" onclick="doCreate()">创建</button>
   </div>`;
+  refreshCatSelectors();
 }
-function onCatChange(){
-  const cat=document.querySelector('input[name="ncCat"]:checked')?.value||'';
+function refreshCatSelectors(){
+  ['catSelector','catManager'].forEach(id=>{ const el=document.getElementById(id); if(el) renderCatSelectorInto(el); });
+}
+function renderCatSelectorInto(el){
+  const inCreate = el.id==='catSelector';
+  const sel = state.createCat;
+  let h='';
+  for(const c of __catList){
+    const active = (inCreate && c.code===sel)?' active':'';
+    const tools = c.is_system
+      ? '<span class="cat-lock" title="系统类目：可重命名显示名，不可删除">🔒</span>'
+      : `<button class="cat-x" title="重命名" onclick="event.stopPropagation();startRenameCat('${esc(c.code)}')">✎</button>`
+       +`<button class="cat-x" title="删除" onclick="event.stopPropagation();delCat('${esc(c.code)}')">✕</button>`;
+    const click = inCreate?`onclick="selectCreateCat('${esc(c.code)}')"`:'';
+    h+=`<div class="cat-chip${active}" ${click}>${esc(c.name)}${tools}</div>`;
+  }
+  h+=`<div class="cat-chip cat-add" onclick="addCatStart()">＋ 新建类目</div>`;
+  el.innerHTML=h;
+}
+function selectCreateCat(code){
+  state.createCat=code;
+  refreshCatSelectors();
+  const cat=__catList.find(c=>c.code===code);
   const themeEl=document.getElementById('ncTheme');
-  if(cat==='software_revision' && !themeEl.value.trim()) themeEl.value='软件修订';
+  // 选「软件修订」等模板类目时，自动把主题预填为类目名（便于默认归类）
+  if(cat && cat.is_template && themeEl && !themeEl.value.trim()) themeEl.value=cat.name;
+}
+async function addCatStart(){
+  const name=prompt('新建类目名称：'); if(name===null)return;
+  const nm=name.trim(); if(!nm){toast('名称不能为空');return;}
+  try{
+    const c=await api('/categories',{method:'POST',body:JSON.stringify({name:nm})});
+    await loadCategories(); state.createCat=c.code; refreshCatSelectors();
+    toast('已新建类目：'+c.name);
+  }catch(e){ toast((e&&e.message)?e.message:'新建失败'); }
+}
+async function startRenameCat(code){
+  const cat=__catList.find(c=>c.code===code); if(!cat)return;
+  const name=prompt('重命名类目（显示名）：', cat.name); if(name===null)return;
+  const nm=name.trim(); if(!nm){toast('名称不能为空');return;}
+  try{
+    await api('/categories/rename',{method:'PUT',body:JSON.stringify({code,name:nm})});
+    await loadCategories(); refreshCatSelectors();
+    toast('已重命名为：'+nm);
+  }catch(e){ toast((e&&e.message)?e.message:'重命名失败'); }
+}
+async function delCat(code){
+  const cat=__catList.find(c=>c.code===code); if(!cat)return;
+  if(!confirm(`删除类目「${cat.name}」？该类目下的话题将回到「普通话题」。`))return;
+  try{
+    await api('/categories/delete',{method:'POST',body:JSON.stringify({code})});
+    await loadCategories(); refreshCatSelectors();
+    toast('已删除类目');
+  }catch(e){ toast((e&&e.message)?e.message:'删除失败'); }
 }
 async function doCreate(){
   const title=document.getElementById('ncTitle').value.trim()||'未命名话题';
   const hostName=document.getElementById('ncHost').value.trim()||'王咨询师';
   const expertName=document.getElementById('ncExpert').value.trim()||'李专家';
   const theme=document.getElementById('ncTheme').value.trim()||null;
-  const category=document.querySelector('input[name="ncCat"]:checked')?.value||'';
+  const category=state.createCat||'';
   const body={title,host_name:hostName,expert_name:expertName,theme,category};
   if(ACCOUNT&&ACCOUNT.account_id)body.account_id=ACCOUNT.account_id;
   const d=await api('/rooms',{method:'POST',body:JSON.stringify(body)});
@@ -830,6 +909,7 @@ async function ensureSoftwareRoom(){
 }
 async function loadRooms(){
   await ensureSoftwareRoom().catch(()=>{});
+  await loadCategories().catch(()=>{});   // 预载类目映射（code→显示名），供对话列表 chip 解析
   roomsCache=await api('/rooms');
   for(const r of roomsCache){
     try{
@@ -877,7 +957,7 @@ function cellHtml(r){
   const mode=r.mode?`模式：${esc(r.mode)} · `:'';
   const tags=(r.tags||[]).map(t=>`<span class="tg-chip tag">#${esc(t)}</span>`).join('');
   const themeChip=r.theme?`<span class="tg-chip theme">主题·${esc(r.theme)}</span>`:'';
-  const catChip=r.category==='software_revision'?`<span class="tg-chip tag" style="background:#E6F1FB;color:#185FA5">软件修订</span>`:'';
+  const catChip=r.category?`<span class="tg-chip tag" style="background:#E6F1FB;color:#185FA5">${esc(catName(r.category))}</span>`:'';
   const chips=(themeChip||tags||catChip)?`<div class="tags-line">${catChip}${themeChip}${tags}</div>`:'';
   return `<div class="cell" onclick="openChat('${r.room_id}')">
     <div class="avatar" style="background:${colorOf(r.room_id)}">${esc(r.title[0]||'话')}</div>
@@ -911,9 +991,9 @@ function renderChat(){
   const softwareMine = mine.filter(r=>r.category==='software_revision');
   const others = mine.filter(r=>r.category!=='software_revision');
   let html = '';
-  // 固定类目：软件修订（app 代码修订流程）
+  // 固定类目：软件修订（app 代码修订流程）；标题用解析后的类目显示名（可被用户重命名）
   html += `<div class="thgroup" data-theme="__software">
-    <div class="thgroup-h" style="color:#185FA5">▾ 软件修订<span class="tg-count">${softwareMine.length}</span><span class="tg-arrow">▾</span></div>
+    <div class="thgroup-h" style="color:#185FA5">▾ ${esc(catName('software_revision'))}<span class="tg-count">${softwareMine.length}</span><span class="tg-arrow">▾</span></div>
     <div class="thgroup-body">${softwareMine.length ? softwareMine.map(r=>cellHtml(r)).join('')
       : '<div class="empty" style="padding:14px 10px;font-size:12.5px">暂无软件修订对话，点右上角 ⋯ 选择「软件修订」类目创建</div>'}</div></div>`;
   const groups={};
@@ -1594,6 +1674,7 @@ async function renderSettings(){
     el.innerHTML=acctHtml+'<div class="empty" style="padding:46px 0">请先在「对话」栏创建或加入一个话题<br>会议流程设置依附于具体话题</div>';
     return;
   }
+  await loadCategories().catch(()=>{});   // 刷新类目列表，供「话题类目管理」分区渲染
   const myRooms=roomsCache.filter(r=>!r.noAccess&&(r.members||[]).some(m=>m.member_id===PROFILE.memberId));
   const rid=state.settingsRoom||PROFILE.activeRoom||(myRooms[0]&&myRooms[0].room_id)||null;
   settingsRoom=rid;
@@ -1639,6 +1720,15 @@ async function renderSettings(){
       <div class="o-d">${m.key} · 输出 ${m.price_out} 元·百万token${m.needs_provisioning?' <span class="badge-warn">需配置端点</span>':''}</div></div>
       <div class="o-ck"></div></div>`).join('')}
     <div class="note">视频模型端点需在方舟控制台创建并填入 model_tiers.json 的 video.models 后方可实际生成视频。</div>` : '';
+
+  /* 分区1.7：话题类目管理（用户可新增 / 重命名 / 删除，带排重）*/
+  const catSec=`
+    <div class="section-title">话题类目管理</div>
+    <div class="srow" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div class="s-main"><div class="s-t">话题类目</div>
+      <div class="s-d">创建话题时的分类维度。可新建自定义类目，也可重命名（含系统类目显示名）、删除自定义类目（其下话题回到「普通话题」）。</div></div>
+    </div>
+    <div id="catManager" class="cat-sel" style="padding:0 16px 12px"></div>`;
 
   /* 分区2：工作AI代理设置 */
   const agentSec=`
@@ -1715,7 +1805,8 @@ async function renderSettings(){
       </div>`).join('')||'<div class="empty" style="padding:16px 0">暂无备份</div>'}</div>`;
   }catch(e){ dbBk=''; }
 
-  el.innerHTML=acctHtml+picker+dbBk+surfaceSec+videoSec+agentSec+meetingSec+otherSec;
+  el.innerHTML=acctHtml+picker+dbBk+surfaceSec+videoSec+catSec+agentSec+meetingSec+otherSec;
+  refreshCatSelectors();   // 填充设置页「话题类目管理」的 #catManager
   try{ const info=await api('/system/info'); if(info.heavy_agent_endpoint&&!wb)document.getElementById('whkInput').value=info.heavy_agent_endpoint; }catch(e){}
 }
 function pickSettingsRoom(rid){

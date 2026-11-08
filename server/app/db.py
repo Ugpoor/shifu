@@ -168,6 +168,21 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at  REAL NOT NULL,
   expires_at  REAL NOT NULL
 );
+
+-- 话题类目（用户可新增 / 重命名 / 删除，按账号隔离，带排重）
+-- code 为房间 rooms.category 的稳定存储值（重命名只改 name，不改 code，
+-- 以保护「软件修订」等系统类目绑定的任务卡模板逻辑）；name 为用户可见的显示名。
+CREATE TABLE IF NOT EXISTS room_categories (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id  TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  code        TEXT NOT NULL,
+  is_system   INTEGER NOT NULL DEFAULT 0,   -- 1=系统内置（普通话题 / 软件修订），不可删
+  is_template INTEGER NOT NULL DEFAULT 0,   -- 1=绑定软件修订任务卡模板
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  REAL NOT NULL,
+  UNIQUE (account_id, name)                 -- 排重：同名类目不允许重复
+);
 """
 
 
@@ -347,6 +362,105 @@ def ensure_software_revision_room(account_id: str, nickname: str | None = None) 
     create_task(room_id, title, {}, agent_kind="code",
                 template=TEMPLATE_SOFTWARE, stage="需求整理", requirement="")
     return {"room_id": room_id, "created": True, "task_created": True}
+
+
+# ── 话题类目（用户可新增 / 重命名 / 删除，按账号隔离，带排重）──────────
+def ensure_default_categories(account_id: str) -> None:
+    """为每个账号预置系统类目：普通话题（默认，code=''）/ 软件修订（绑定模板）。
+
+    仅首次访问类目时补齐；已存在则跳过。普通话题的 code 为空字符串，
+    对应 rooms.category 的默认值 ''，从而历史「普通话题」房间自动归位。
+    """
+    existing = {r["code"] for r in query_all(
+        "SELECT code FROM room_categories WHERE account_id=?", (account_id,))}
+    now = _now()
+    if "" not in existing:
+        execute(
+            "INSERT INTO room_categories(account_id,name,code,is_system,is_template,sort_order,created_at)"
+            " VALUES(?,?,?,1,0,0,?)", (account_id, "普通话题", "", now))
+    if ROOM_CATEGORY_SOFTWARE not in existing:
+        execute(
+            "INSERT INTO room_categories(account_id,name,code,is_system,is_template,sort_order,created_at)"
+            " VALUES(?,?,?,1,1,1,?)", (account_id, "软件修订", ROOM_CATEGORY_SOFTWARE, now))
+
+
+def list_categories(account_id: str) -> list[dict]:
+    """返回账号的类目列表（含系统预置），按 sort_order、id 升序。"""
+    ensure_default_categories(account_id)
+    rows = query_all(
+        "SELECT code,name,is_system,is_template,sort_order FROM room_categories"
+        " WHERE account_id=? ORDER BY sort_order ASC, id ASC", (account_id,))
+    return [dict(r) for r in rows]
+
+
+def category_name_map(account_id: str) -> dict:
+    """code → 显示名 映射（含系统类目），供前端把房间 category 解析为可读名。"""
+    ensure_default_categories(account_id)
+    return {r["code"]: r["name"] for r in query_all(
+        "SELECT code,name FROM room_categories WHERE account_id=?", (account_id,))}
+
+
+def create_category(account_id: str, name: str) -> dict:
+    """新增用户类目（code 默认等于 name）。同名（同账号）则排重返回 EXISTS。"""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("类目名称不能为空")
+    ensure_default_categories(account_id)
+    if query_one("SELECT 1 AS x FROM room_categories WHERE account_id=? AND name=?",
+                 (account_id, name)):
+        raise ValueError("EXISTS")
+    now = _now()
+    try:
+        execute(
+            "INSERT INTO room_categories(account_id,name,code,is_system,is_template,sort_order,created_at)"
+            " VALUES(?,?,?,0,0,(SELECT COALESCE(MAX(sort_order),1)+1 FROM room_categories WHERE account_id=?),?)",
+            (account_id, name, name, account_id, now))
+    except sqlite3.IntegrityError:
+        # 并发/竞态下的兜底：与 UNIQUE(account_id,name) 冲突即视为同名已存在
+        raise ValueError("EXISTS")
+    return {"code": name, "name": name, "is_system": 0, "is_template": 0}
+
+
+def rename_category(account_id: str, code: str, new_name: str) -> dict:
+    """重命名类目：只改 name（code 不变，以保护模板绑定）。目标名与同账号其他类目重名则排重。"""
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("类目名称不能为空")
+    cat = query_one("SELECT * FROM room_categories WHERE account_id=? AND code=?",
+                    (account_id, code))
+    if not cat:
+        raise ValueError("NOTFOUND")
+    if new_name != cat["name"]:
+        if query_one(
+                "SELECT 1 AS x FROM room_categories WHERE account_id=? AND name=? AND code<>?",
+                (account_id, new_name, code)):
+            raise ValueError("EXISTS")
+    try:
+        execute("UPDATE room_categories SET name=? WHERE account_id=? AND code=?",
+                (new_name, account_id, code))
+    except sqlite3.IntegrityError:
+        raise ValueError("EXISTS")
+    return {"code": code, "name": new_name,
+            "is_system": cat["is_system"], "is_template": cat["is_template"]}
+
+
+def delete_category(account_id: str, code: str) -> dict:
+    """删除用户类目：先把该账号下归属此 code 的房间回退为默认类目（''=普通话题），再删类目行。
+
+    系统类目（is_system=1）禁止删除。"""
+    cat = query_one("SELECT * FROM room_categories WHERE account_id=? AND code=?",
+                    (account_id, code))
+    if not cat:
+        raise ValueError("NOTFOUND")
+    if cat["is_system"]:
+        raise ValueError("SYSTEM")
+    # 仅回退本账号拥有的房间（经 members 关联），避免误伤其他账号同名 code 房间
+    execute(
+        "UPDATE rooms SET category='' WHERE category=? AND room_id IN"
+        " (SELECT room_id FROM members WHERE account_id=?)", (code, account_id))
+    execute("DELETE FROM room_categories WHERE account_id=? AND code=?",
+            (account_id, code))
+    return {"deleted": code}
 
 
 def _normalize_room(r: dict | None) -> dict | None:

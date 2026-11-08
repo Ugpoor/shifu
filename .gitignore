@@ -33,6 +33,7 @@ Thumbs.db
 # ── Dev artifacts (screenshots, backups) ──
 screenshots/
 .revision-backups/
+server/data/db_backups/
 
 # ── Packaging ──
 *.tar.gz
