@@ -5,6 +5,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import subprocess
 import uuid
 from contextlib import asynccontextmanager
 
@@ -99,6 +102,60 @@ def system_info():
         "wechat_enabled": bool(cfg.WECHAT_APPID),
         "version": "0.1.0-MVP",
     }
+
+
+def _git(*args: str) -> str:
+    """在仓库根目录执行 git 命令，失败返回空串（不影响主流程）。"""
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # server/
+        return subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def get_version_info() -> dict:
+    """返回软件版本信息，用于设置页区分「开发 / 发布」构建。
+
+    - commit / commit_full / branch / commit_time：优先取当前 git HEAD（始终最新），
+      缺 git 时回退到 stamped 文件。
+    - pushed_at：来自 server/version.json（每次 push 时由发布脚本盖章），无则为 null。
+    - build：构建类型，「开发预览」或「正式发布」，由 stamped 文件标记。
+    """
+    server_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # server/
+    stamped: dict = {}
+    vfile = os.path.join(server_root, "version.json")
+    if os.path.exists(vfile):
+        try:
+            with open(vfile, encoding="utf-8") as f:
+                stamped = json.load(f) or {}
+        except Exception:  # noqa: BLE001
+            stamped = {}
+
+    commit = _git("rev-parse", "--short", "HEAD") or stamped.get("commit", "unknown")
+    commit_full = _git("rev-parse", "HEAD") or stamped.get("commit_full", "")
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD") or stamped.get("branch", "master")
+    commit_time = _git("log", "-1", "--format=%cI") or stamped.get("commit_time", "")
+
+    raw_build = stamped.get("build", "开发预览")
+    build = raw_build if raw_build in ("开发预览", "正式发布") else "开发预览"
+
+    return {
+        "app_version": "0.1.0-MVP",
+        "commit": commit,
+        "commit_full": commit_full,
+        "branch": branch,
+        "commit_time": commit_time,
+        "pushed_at": stamped.get("pushed_at"),
+        "build": build,
+    }
+
+
+@app.get("/version")
+def version():
+    """软件版本信息：提交版本号 + git push 时间（开发 / 发布区分）。"""
+    return get_version_info()
 
 
 @app.get("/agents")

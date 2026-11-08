@@ -126,6 +126,9 @@ nav .dot{position:absolute;top:4px;right:calc(50% - 18px);min-width:15px;height:
 .tg-chip{font-size:10.5px;padding:1px 7px;border-radius:9px;background:#f0ebdd;color:#8a6b45}
 .tg-chip.theme{background:#e7f0ff;color:#2b6cff}
 .tg-chip.tag{background:#fff0e6;color:#c2520a}
+.ver-badge{font-size:10.5px;padding:1px 8px;border-radius:9px;margin-left:6px;font-weight:600;vertical-align:1px}
+.ver-badge.dev{background:#eef2f6;color:#5a6b7b;border:1px solid #cdd6e0}
+.ver-badge.rel{background:#e6f6ec;color:#1f8a4c;border:1px solid #b6e3c6}
 /* ── 创建话题 / 设置页：话题类目选择器 ── */
 .cat-sel{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
 .cat-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);border-radius:18px;background:#fff;font-size:13px;color:var(--ink);cursor:pointer;user-select:none;transition:.15s}
@@ -1660,6 +1663,10 @@ async function renderSettings(){
   /* 视频创作模型（Seedance）*/
   let videoModels=[], videoSel=null;
   try{ const v=await api('/settings/video-model'); videoModels=Object.entries(v.models||{}).map(([k,val])=>({key:k,...val})); videoSel=v.selected; }catch(e){}
+  /* 软件版本信息（提交版本号 + git push 时间，区分开发/发布）*/
+  let vinfo=null;
+  try{ vinfo=await api('/version'); }catch(e){}
+  const fmtIso=(iso)=>{ if(!iso)return '—'; try{ return new Date(iso).toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso; } };
 
   /* 分区1：登录信息（微信社会化登录）*/
   let acctHtml;
@@ -1787,11 +1794,22 @@ async function renderSettings(){
   }
 
   /* 分区4：其他 */
+  const verSec = (vinfo && vinfo.commit && vinfo.commit!=='unknown') ? `
+    <div class="srow" style="flex-direction:column;align-items:stretch;gap:5px">
+      <div class="s-main" style="display:flex;justify-content:space-between;align-items:center">
+        <div class="s-t">提交版本号 <span class="ver-badge ${vinfo.build==='正式发布'?'rel':'dev'}">${esc(vinfo.build||'开发预览')}</span></div>
+        <b style="color:var(--sub);font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace">${esc(vinfo.commit)}</b>
+      </div>
+      <div class="s-d">分支 <b>${esc(vinfo.branch||'master')}</b> · 完整 commit <span style="font-family:ui-monospace,monospace">${esc((vinfo.commit_full||'').slice(0,12))}</span></div>
+      <div class="s-d">代码提交时间：${fmtIso(vinfo.commit_time)}</div>
+      <div class="s-d">版本更新时间（git push）：${vinfo.pushed_at?fmtIso(vinfo.pushed_at):'<span style="color:#c2520a">尚未记录（请重新发布以盖章）</span>'}</div>
+    </div>` : `
+    <div class="srow"><div class="s-main"><div class="s-t">版本号</div></div><b style="color:var(--sub);font-size:13px">0.1.0-MVP</b></div>`;
   const otherSec=`
     <div class="section-title">其他</div>
+    ${verSec}
     ${mrow('clearcache','清除本地缓存','清空本机登录态与演示数据','', 'clearLocalCache()')}
-    ${mrow('about','关于师傅来了','师傅来了· AI系统开发运营陪跑 · 双Agent分层 · HITL双通路','MVP v0.1','')}
-    <div class="srow"><div class="s-main"><div class="s-t">版本号</div></div><b style="color:var(--sub);font-size:13px">0.1.0-MVP</b></div>`;
+    ${mrow('about','关于师傅来了','师傅来了· AI系统开发运营陪跑 · 双Agent分层 · HITL双通路','MVP v0.1','')}`;
 
   /* 分区0.5：数据备份（结构 + 全量）*/
   let dbBk='';

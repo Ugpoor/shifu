@@ -38,5 +38,8 @@ server/data/db_backups/
 # ── Packaging ──
 *.tar.gz
 *.zip
+
+# ── Generated build stamp (written at git push time; not tracked) ──
+server/version.json
 dist/
 build/
