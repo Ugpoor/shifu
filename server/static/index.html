@@ -977,7 +977,7 @@ function cellHtml(r){
   const themeChip=r.theme?`<span class="tg-chip theme">主题·${esc(r.theme)}</span>`:'';
   const catChip=r.category?`<span class="tg-chip tag" style="background:#E6F1FB;color:#185FA5">${esc(catName(r.category))}</span>`:'';
   const chips=(themeChip||tags||catChip)?`<div class="tags-line">${catChip}${themeChip}${tags}</div>`:'';
-  return `<div class="cell" data-rid="${r.room_id}">
+  return `<div class="cell" data-rid="${r.room_id}" onclick="openChat(this.dataset.rid)" role="button" tabindex="0">
     <div class="avatar" style="background:${colorOf(r.room_id)}">${esc(r.title[0]||'话')}</div>
     <div class="main"><div class="t"><b>${esc(r.title)}</b>${n?`<span class="badge">${n}</span>`:''}</div>
     <div class="d">${mode}${esc(experts||'协作专家')} · 任务${r.tasks.length}</div>${chips}</div></div>`;
@@ -1063,7 +1063,7 @@ function renderChatFilter(){
     return kind?{r,kind,label,score:kind==='tag'?3:kind==='theme'?2:1}:null;
   }).filter(Boolean).sort((a,b)=>b.score-a.score);
   if(!scored.length){body.innerHTML='<div class="empty">没有匹配「'+esc(q)+'」的话题</div>';return;}
-  body.innerHTML=scored.map(s=>`<div class="fm-res" data-rid="${s.r.room_id}">
+  body.innerHTML=scored.map(s=>`<div class="fm-res" data-rid="${s.r.room_id}" onclick="closeChatFilter();openChat(this.dataset.rid)" role="button" tabindex="0">
     <div class="avatar" style="background:${colorOf(s.r.room_id)}">${esc((s.r.title[0]||'话'))}</div>
     <div class="main"><div class="mt">${esc(s.r.title)}</div><div class="md">${esc((s.r.members||[]).filter(m=>m.role==='expert').map(m=>m.name).join('、')||'协作专家')}</div></div>
     <span class="fm-mtag ${s.kind}">${s.kind==='tag'?'标签·'+(s.label||''):s.kind==='theme'?'主题·'+(s.label||''):'内容'}</span></div>`).join('');
@@ -1121,7 +1121,7 @@ async function openPerson(accountId){
     if(!shared.length) html+=`<div class="empty">暂无共同参与的话题</div>`;
     else html+=shared.map(r=>{
       const n=waitingCount(r);
-      return `<div class="cell" data-rid="${r.room_id}">
+      return `<div class="cell" data-rid="${r.room_id}" onclick="openChat(this.dataset.rid)" role="button" tabindex="0">
         <div class="avatar" style="border-radius:12px;background:${r.color||AV_COLORS[0]}">${esc((r.title||'题')[0]||'题')}</div>
         <div class="main"><div class="t"><b>${esc(r.title)}</b></div><div class="d">${r.members.length} 人参与${n?` · ${n} 待办`:''}</div></div>
         <div class="m-arrow">›</div></div>`;
@@ -1999,9 +1999,12 @@ async function openChatMenu(){
   const b=document.getElementById('taskBody');
   b.innerHTML='<div class="empty" style="padding:30px 0">加载中…</div>';
   try{
-    const room=roomsCache.find(r=>r.room_id===rid)||await api(`/rooms/${rid}`);
-    const flow=await api(`/rooms/${rid}/flow-settings`);
-    const myMid=state.chatMemberId||PROFILE.memberId;
+    let room=roomsCache.find(r=>r.room_id===rid);
+    // 用「本房间成员身份」调用接口，否则 /flow-settings 会因 X-Member-Id 不匹配而返回 403 → 加载失败
+    const myMid=(room&&room.members||[]).find(m=>m.account_id&&ACCOUNT&&m.account_id===ACCOUNT.account_id)?.member_id
+              || state.chatMemberId || (PROFILE&&PROFILE.memberId);
+    if(!room) room=await api(`/rooms/${rid}`, {}, myMid);
+    const flow=await api(`/rooms/${rid}/flow-settings`, {}, myMid);
     const me=(room.members||[]).find(m=>m.member_id===myMid)||{role:'expert'};
     const isHost=me.role==='host';
     const titleReadOnly = isHost ? '' : 'readonly placeholder="仅主持人可修改"';
@@ -2111,14 +2114,18 @@ async function renderChatMessages(roomId){
   chatNames={};((room&&room.members)||[]).forEach(m=>chatNames[m.member_id]=m.name);
   msgById={};msgs.forEach(m=>msgById[m.msg_id]=m);
   nameToMid={};for(const[mid,nm]of Object.entries(chatNames))nameToMid[nm]=mid;
+  // 本房间内「我」的成员身份：优先用当前房间成员ID(state.chatMemberId)，再按账号匹配，最后回退全局 PROFILE.memberId。
+  // 不能只依赖全局 PROFILE.memberId —— 每个房间的 member_id 独立生成，多房间时它会停留在上一个房间，导致本人消息被误判为「他人」（气泡靠左、显示房间成员名）。
+  const myMid=(room&&room.members||[]).find(m=>m.account_id&&ACCOUNT&&m.account_id===ACCOUNT.account_id)?.member_id
+             || state.chatMemberId || (PROFILE&&PROFILE.memberId) || '';
+  const myName=(ACCOUNT&&ACCOUNT.nickname)||(PROFILE&&PROFILE.name)||'我';
+  const myColor=(ACCOUNT&&ACCOUNT.avatar_color)||'var(--bubbleUser)';
+  const myAvatar=(ACCOUNT&&ACCOUNT.avatar)||(myName[0]||'我').toUpperCase();
   let html=msgs.map(m=>{
     if(m.msg_type==='round_notice'||m.role==='system')
       return `<div class="msg sys"><div class="bubble">${esc(m.content)}</div></div>`;
-    const isMe=m.member_id===PROFILE.memberId,isAgent=m.role==='agent';
+    const isMe=!!myMid&&m.member_id===myMid, isAgent=m.role==='agent';
     const isWork=m.member_id==='work-ai';
-    const who=isAgent?(isWork?'工作AI代理':'会议AI代理'):(chatNames[m.member_id]||m.member_id);
-    const av=isAgent?(isWork?'工':'会'):(who[0]||'A').toUpperCase();
-    const avBg=isAgent?(isWork?'#3a7bd5':'#946B48'):colorOf(m.member_id);
     const reasoning=(m.meta&&m.meta.reasoning)||'';
     const thinkHtml=reasoning?`<div class="think collapsed"><div class="think-h" onclick="toggleThink(this)">💭 思考过程（点击展开）</div><div class="think-b">${md(reasoning)}</div></div>`:'';
     const body=md(m.content||'');
@@ -2128,8 +2135,14 @@ async function renderChatMessages(roomId){
       extra+=`<div class="msgquote"><span class="mq-who">${esc(tw)}</span><span class="mq-text">${esc((t.content||'').slice(0,60))}</span></div>`;}
     if((m.mentions||[]).length)extra+=`<div class="chips">`+m.mentions.map(x=>`<span class="chip ai">@${esc(mentionLabel(x))}</span>`).join('')+`</div>`;
     if((m.topics||[]).length)extra+=`<div class="chips">`+m.topics.map(t=>`<span class="chip topic">#${esc(t)}</span>`).join('')+`</div>`;
+    if(isMe){   // 本人发言：右气泡 + 真实头像/昵称（不再误用房间成员名）
+      const whoLine=`<div class="who">${esc(myName)}${m.withdrawn?' · 已撤回':''}<span class="reply-link" onclick="setReply('${m.msg_id}')">↩ 回复</span></div>`;
+      return `<div class="msg me"><div class="mavatar" style="background:${myColor}">${esc(myAvatar)}</div><div>${whoLine}${extra}${thinkHtml}<div class="bubble">${body}</div></div></div>`;
+    }
+    const who=isAgent?(isWork?'工作AI代理':'会议AI代理'):(chatNames[m.member_id]||m.member_id);
+    const av=isAgent?(isWork?'工':'会'):(who[0]||'A').toUpperCase();
+    const avBg=isAgent?(isWork?'#3a7bd5':'#946B48'):colorOf(m.member_id);
     const whoLine=`<div class="who">${esc(who)}${m.withdrawn?' · 已撤回':''}<span class="reply-link" onclick="setReply('${m.msg_id}')">↩ 回复</span></div>`;
-    if(isMe) return `<div class="msg me"><div>${whoLine}${extra}${thinkHtml}<div class="bubble">${body}</div></div></div>`;
     if(isAgent) return `<div class="msg agent"><div class="mavatar" style="background:${avBg}">${esc(av)}</div><div>${whoLine}${extra}${thinkHtml}<div class="bubble">${body}</div></div></div>`;
     return `<div class="msg"><div class="mavatar" style="background:${avBg}">${esc(av)}</div><div>${whoLine}${extra}${thinkHtml}<div class="bubble">${body}</div></div></div>`;
   }).join('');
@@ -2151,7 +2164,10 @@ async function refreshRoundBar(roomId){
   const bar=document.getElementById('chatRoundBar');
   if(!bar)return;
   try{
-    const ms=await api(`/rooms/${roomId}/meeting-state`);
+    const room=roomsCache.find(r=>r.room_id===roomId);
+    const myMid=(room&&room.members||[]).find(m=>m.account_id&&ACCOUNT&&m.account_id===ACCOUNT.account_id)?.member_id
+              || state.chatMemberId || (PROFILE&&PROFILE.memberId);
+    const ms=await api(`/rooms/${roomId}/meeting-state`, {}, myMid);
     if(ms.mode!=='robert_rules'){bar.classList.remove('show');bar.innerHTML='';return;}
     const done=ms.participants.filter(p=>p.spoken).length;
     const rn=ms.display_round||ms.round_no||1;
@@ -2322,14 +2338,18 @@ function goBack(){
 })();
 buildLoginPicker();
 showTab('chat');
-/* 移动端：对话条目改用事件委托（点击在稳定的 #chatList / #fmBody 容器上处理），
-   即使列表被刷新重建也不会丢失点击；同时避免 8s 自动刷新重建 DOM 时吞掉点击。 */
-const _chatListEl=document.getElementById('chatList');
-if(_chatListEl)_chatListEl.addEventListener('click',e=>{const c=e.target.closest('.cell');if(c&&c.dataset.rid)openChat(c.dataset.rid);});
-const _fmBodyEl=document.getElementById('fmBody');
-if(_fmBodyEl)_fmBodyEl.addEventListener('click',e=>{const c=e.target.closest('.fm-res');if(c&&c.dataset.rid){closeChatFilter();openChat(c.dataset.rid);}});
-const _personTopicsEl=document.getElementById('personTopics');
-if(_personTopicsEl)_personTopicsEl.addEventListener('click',e=>{const c=e.target.closest('.cell');if(c&&c.dataset.rid)openChat(c.dataset.rid);});
+/* 对话/搜索/TA的话题 三类条目均改为元素自带 onclick="openChat(this.dataset.rid)" 直接写法
+   （与通讯录好友条目写法一致，兼容性最好，规避部分 Android 浏览器/WebView 的 click 委托冒泡失效）。
+   下方仅保留键盘可达性：聚焦条目后回车/空格打开，不触发点击，不会与 onclick 重复调用。 */
+['chatList','fmBody','personTopics'].forEach(id=>{
+  const el=document.getElementById(id);
+  if(el)el.addEventListener('keydown',e=>{
+    if(e.key==='Enter'||e.key===' '){
+      const c=e.target.closest('.cell,.fm-res');
+      if(c&&c.dataset.rid){e.preventDefault(); if(id==='fmBody')closeChatFilter(); openChat(c.dataset.rid);}
+    }
+  });
+});
 if(ACCOUNT&&ACCOUNT.token){
   const l=document.getElementById('login');if(l)l.classList.add('hide');
   // 旧登录态的 ACCOUNT 可能缺 account_id 等字段：先用 /auth/me 补全，再进应用
