@@ -6,7 +6,7 @@
  */
 // 缓存名随版本自增：每次发布若需强制失效旧壳，只需改此版本号（如 v1→v2）。
 // activate 阶段会删除所有非当前名的缓存，从而保证旧版 index.html 不会被继续服务。
-const CACHE = 'yantan-shell-v2';
+const CACHE = 'yantan-shell-v3';
 const SHELL = [
   // 注意：'/' 与 '/index.html' 故意不纳入预缓存壳，
   // 首页始终由 fetch 处理器的 network-first(+no-cache) 实时拉取，避免壳缓存留下旧 HTML。
@@ -42,15 +42,12 @@ self.addEventListener('fetch', (e) => {
   if (!isShell(url)) return;                        // API 等动态请求：network-only
 
   if (url.pathname === '/' || url.pathname === '/index.html') {
-    // 首页：network-first，离线回退缓存。
-    // 关键：fetch 强制 cache:'no-cache'，绕过浏览器 HTTP 启发式缓存，
-    // 确保每次都向服务端校验最新 index.html（避免「服务端已更新、浏览器仍显示旧版」）。
+    // 首页：强制走网络、SW 层永不缓存。
+    // 之前首页会被 SW 缓存，Safari 在弱网/未真正 revalidate 时会喂旧壳，
+    // 导致「服务端已更新、浏览器仍跑旧版（事件委托版对话列表）」——表现为 Safari/手机点不进对话。
+    // 故改为每次都向服务端拉取最新 index.html（cache:'reload' 绕过浏览器 HTTP 缓存），保证灰度即时生效。
     e.respondWith(
-      fetch(req, { cache: 'no-cache' }).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(req, copy));
-        return res;
-      }).catch(() => caches.match(req).then((r) => r || caches.match('/index.html')))
+      fetch(req, { cache: 'reload' }).catch(() => caches.match(req).then((r) => r || caches.match('/index.html')))
     );
   } else {
     // 其它静态资源：cache-first

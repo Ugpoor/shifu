@@ -977,7 +977,7 @@ function cellHtml(r){
   const themeChip=r.theme?`<span class="tg-chip theme">主题·${esc(r.theme)}</span>`:'';
   const catChip=r.category?`<span class="tg-chip tag" style="background:#E6F1FB;color:#185FA5">${esc(catName(r.category))}</span>`:'';
   const chips=(themeChip||tags||catChip)?`<div class="tags-line">${catChip}${themeChip}${tags}</div>`:'';
-  return `<div class="cell" data-rid="${r.room_id}" onclick="openChat(this.dataset.rid)" role="button" tabindex="0">
+  return `<div class="cell" data-rid="${r.room_id}" onclick="openChat(this.dataset.rid)">
     <div class="avatar" style="background:${colorOf(r.room_id)}">${esc(r.title[0]||'话')}</div>
     <div class="main"><div class="t"><b>${esc(r.title)}</b>${n?`<span class="badge">${n}</span>`:''}</div>
     <div class="d">${mode}${esc(experts||'协作专家')} · 任务${r.tasks.length}</div>${chips}</div></div>`;
@@ -1063,7 +1063,7 @@ function renderChatFilter(){
     return kind?{r,kind,label,score:kind==='tag'?3:kind==='theme'?2:1}:null;
   }).filter(Boolean).sort((a,b)=>b.score-a.score);
   if(!scored.length){body.innerHTML='<div class="empty">没有匹配「'+esc(q)+'」的话题</div>';return;}
-  body.innerHTML=scored.map(s=>`<div class="fm-res" data-rid="${s.r.room_id}" onclick="closeChatFilter();openChat(this.dataset.rid)" role="button" tabindex="0">
+  body.innerHTML=scored.map(s=>`<div class="fm-res" data-rid="${s.r.room_id}" onclick="closeChatFilter();openChat(this.dataset.rid)">
     <div class="avatar" style="background:${colorOf(s.r.room_id)}">${esc((s.r.title[0]||'话'))}</div>
     <div class="main"><div class="mt">${esc(s.r.title)}</div><div class="md">${esc((s.r.members||[]).filter(m=>m.role==='expert').map(m=>m.name).join('、')||'协作专家')}</div></div>
     <span class="fm-mtag ${s.kind}">${s.kind==='tag'?'标签·'+(s.label||''):s.kind==='theme'?'主题·'+(s.label||''):'内容'}</span></div>`).join('');
@@ -1121,7 +1121,7 @@ async function openPerson(accountId){
     if(!shared.length) html+=`<div class="empty">暂无共同参与的话题</div>`;
     else html+=shared.map(r=>{
       const n=waitingCount(r);
-      return `<div class="cell" data-rid="${r.room_id}" onclick="openChat(this.dataset.rid)" role="button" tabindex="0">
+      return `<div class="cell" data-rid="${r.room_id}" onclick="openChat(this.dataset.rid)">
         <div class="avatar" style="border-radius:12px;background:${r.color||AV_COLORS[0]}">${esc((r.title||'题')[0]||'题')}</div>
         <div class="main"><div class="t"><b>${esc(r.title)}</b></div><div class="d">${r.members.length} 人参与${n?` · ${n} 待办`:''}</div></div>
         <div class="m-arrow">›</div></div>`;
@@ -1975,22 +1975,24 @@ async function resetRound(){
 
 /* ────────── 对话页（会话）────────────────── */
 async function openChat(roomId){
+ try{
   let room=roomsCache.find(r=>r.room_id===roomId);
   if(!room||!room.members) room=await api(`/rooms/${roomId}`);
   // 按当前登录账号解析「本房间内」的成员身份：每个房间成员独立生成，需用 account_id 匹配，
   // 不能再依赖全局单一 PROFILE.memberId（否则只能打开最近创建的那一个房间）。
   const myMid=(room.members||[]).find(m=>m.account_id&&ACCOUNT&&m.account_id===ACCOUNT.account_id)?.member_id
               || (room.members||[]).find(m=>m.member_id===PROFILE.memberId)?.member_id
-              || PROFILE.memberId;
+              || (PROFILE&&PROFILE.memberId)||'';
   state.chatRoom=roomId;
   state.chatMemberId=myMid;
   state.settingsRoom=roomId;
-  PROFILE.activeRoom=roomId;try{localStorage.setItem('hitl_profile',JSON.stringify(PROFILE));}catch(e){/* Safari 隐私模式/配额异常时静默跳过，不影响进入会话 */}
+  if(PROFILE){PROFILE.activeRoom=roomId;try{localStorage.setItem('hitl_profile',JSON.stringify(PROFILE));}catch(e){/* Safari 隐私模式/配额异常时静默跳过，不影响进入会话 */}}
   document.getElementById('chatTitle').textContent=room.title;
   openPage('page-chat');                                  // 先打开页面，避免消息加载失败导致进不去
   if(document.getElementById('view-contact').classList.contains('active'))showTab('chat');
   try{ await renderChatMessages(roomId); }catch(e){ console.error(e); toast('历史消息加载失败：'+(e.message||e)); }
   try{ await refreshRoundBar(roomId); }catch(e){}
+ }catch(e){ console.error('openChat 失败',e); toast('进入会话失败：'+(e&&e.message||e)); }
 }
 async function openChatMenu(){
   const rid=state.chatRoom; if(!rid){toast('请先进入一个话题');return;}
