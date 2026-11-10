@@ -38,7 +38,7 @@ body{font-family:-apple-system,"PingFang SC","Helvetica Neue","Microsoft YaHei",
 .topbar h1{font-size:18px;font-weight:600;flex:1;text-align:center}
 .topbar .op{font-size:24px;color:var(--accent);cursor:pointer;padding:0 8px;font-weight:300;line-height:1}
 /* ── 视图 ── */
-.view{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom))}
+.view{flex:1;overflow-y:auto;display:none;padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom))}
 .view.active{display:block}
 /* ── 底部导航（4 Tab，线稿水墨图标，选中=赭石）── */
 nav{position:absolute;bottom:0;left:0;right:0;height:calc(var(--nav-h) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:var(--bg);border-top:.5px solid var(--line);display:flex;z-index:50}
@@ -77,7 +77,7 @@ nav .dot{position:absolute;top:4px;right:calc(50% - 18px);min-width:15px;height:
 .page .phead{background:var(--bg);padding:calc(env(safe-area-inset-top) + 12px) 12px 10px;display:flex;align-items:center;gap:6px;border-bottom:.5px solid var(--line)}
 .page .phead .back{font-size:15px;color:var(--accent);cursor:pointer;padding:4px 6px;display:flex;align-items:center;gap:2px}
 .page .phead h2{font-size:17px;font-weight:600;flex:1;text-align:center;margin-right:56px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.page .pbody{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.page .pbody{flex:1;overflow-y:auto}
 /* ── 聊天 ── */
 #chatMsgs{padding:14px 12px;display:flex;flex-direction:column;gap:12px}
 .msg{max-width:78%;display:flex;gap:8px;align-items:flex-start}
@@ -1985,7 +1985,7 @@ async function openChat(roomId){
   state.chatRoom=roomId;
   state.chatMemberId=myMid;
   state.settingsRoom=roomId;
-  PROFILE.activeRoom=roomId;localStorage.setItem('hitl_profile',JSON.stringify(PROFILE));
+  PROFILE.activeRoom=roomId;try{localStorage.setItem('hitl_profile',JSON.stringify(PROFILE));}catch(e){/* Safari 隐私模式/配额异常时静默跳过，不影响进入会话 */}
   document.getElementById('chatTitle').textContent=room.title;
   openPage('page-chat');                                  // 先打开页面，避免消息加载失败导致进不去
   if(document.getElementById('view-contact').classList.contains('active'))showTab('chat');
