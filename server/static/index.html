@@ -189,6 +189,26 @@ nav .dot{position:absolute;top:4px;right:calc(50% - 18px);min-width:15px;height:
 .tag.waiting_human{background:#c8842f}.tag.finished{background:var(--accent)}
 .tag.failed{background:var(--danger)}.tag.canceled{background:var(--sub)}
 .tag.closed{background:#6b7280}
+
+/* ── 任务详情：状态卡 / 终态横幅 / 指令KV / 状态时间线 ── */
+.status-card{padding-bottom:10px}
+.final-banner{display:inline-block;margin-top:8px;padding:3px 12px;border-radius:999px;font-size:13px;font-weight:600;color:#fff}
+.final-banner.running,.final-banner.queued,.final-banner.waiting_human{background:#1677ff}
+.final-banner.finished,.final-banner.closed{background:var(--accent)}
+.final-banner.failed{background:var(--danger)}
+.final-banner.canceled{background:var(--sub)}
+.kv{display:flex;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:13px;line-height:1.5}
+.kv:last-child{border-bottom:0}
+.kv .k{flex:0 0 76px;color:var(--sub)}
+.kv .v{color:var(--ink);white-space:pre-wrap;word-break:break-word}
+.kv .v.clamp{max-height:120px;overflow:auto}
+.timeline{margin-top:4px;padding-left:6px}
+.tl-item{display:flex;gap:8px;align-items:flex-start;padding:5px 0;font-size:13px;color:var(--ink)}
+.tl-item .tl-dot{width:9px;height:9px;border-radius:50%;background:var(--line);margin-top:5px;flex:0 0 auto}
+.tl-item:not(:last-child)::after{}
+.tl-item.on .tl-dot{background:var(--accent)}
+.tl-item b{font-weight:600}
+.tl-item small{display:block;color:var(--sub);font-size:11px;margin-top:1px}
 .scopebar{display:flex;align-items:center;gap:10px;background:#efe7d8;border-radius:10px;padding:10px 12px;margin:10px 12px}
 .scopebar .sb-main{flex:1;min-width:0}
 .scopebar .sb-t{font-size:13.5px;font-weight:600;color:var(--ink)}
@@ -1419,10 +1439,41 @@ async function openTask(taskId,roomId){
   if(task.unread_progress||(prog.items||[]).some(i=>!i.is_read)){
     api(`/tasks/${taskId}/progress/read`,{method:'POST',body:'{}'}).then(()=>{renderPanel();renderBadges();}).catch(()=>{});
   }
-  let html=`<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <b style="font-size:15.5px;color:var(--ink)">${esc(task.summary)}</b><span class="tag ${task.status}">${STATUS_TEXT[task.status]}</span></div>
-    <div style="font-size:12px;color:var(--sub)">${esc(task.task_id)} · ${esc(room.title)}<br>创建于 ${fmtFull(task.created_at)}</div></div>`;
+  // 终态标签（进行中 / 失败 / 成功结束）
+  const st=task.status;
+  const stLabel = st==='running'?'进行中·运行中'
+               : st==='waiting_human'?'进行中·待人工确认'
+               : st==='queued'?'进行中·排队中'
+               : (st==='finished'||st==='closed')?'成功结束'
+               : st==='failed'?'失败'
+               : st==='canceled'?'已取消' : st;
+  const stCls = (st==='finished'||st==='closed')?'finished':st;
+  let html=`<div class="card status-card ${stCls}">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <b style="font-size:16px;color:var(--ink)">${esc(task.summary)}</b>
+      <span class="tag ${stCls}">${svg(STATUS_ICON[st]||'pending',14)} ${STATUS_TEXT[st]}</span>
+    </div>
+    <div class="final-banner ${stCls}">${stLabel}</div>
+    <div style="font-size:12px;color:var(--sub);margin-top:6px">${esc(task.task_id)} · ${esc(room.title)}<br>创建于 ${fmtFull(task.created_at)}</div>
+  </div>`;
+  // 会议AI → 工作AI 的任务指令（context_package：会议AI 打包下发的共识）
+  const cp=task.context_package||{};
+  const cmdRows=[['任务摘要',task.summary],['交付要求',cp.deliver_requirement||'(无)'],
+    ['约束条件',(cp.constraints&&cp.constraints.length)?cp.constraints.join('；'):'(无)'],
+    ['母体对话主题',cp.theme||room.title||'(无)']];
+  html+=`<div class="card"><div class="section-title" style="padding-left:0">📤 会议AI 下达给工作AI 的任务指令</div>${
+    cmdRows.map(([k,v])=>`<div class="kv"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join('')
+  }<div class="kv"><span class="k">讨论纪要</span><span class="v clamp">${esc(cp.discussion_history||'(无)')}</span></div></div>`;
+  // 整体工作状态时间线（来自任务执行日志）
+  const logSeq=[['task_created','已创建'],['task_dispatched','已下发工作AI'],['task_redispatched','已重新下发'],
+    ['breakpoint_raised','抛出人工断点'],['breakpoint_answered','断点已答复'],['task_resumed','恢复推演'],
+    ['task_finished','工作AI完成'],['task_error','执行出错'],['task_canceled','已取消'],['task_closed','已结案']];
+  const haveSet=new Set((d.logs||[]).map(l=>l.event));
+  const timeline=(logSeq.filter(([e])=>haveSet.has(e)).map(([e,label])=>{
+    const lg=(d.logs||[]).find(l=>l.event===e)||{};
+    return `<div class="tl-item ${e==='task_finished'?'on':''}"><span class="tl-dot"></span><div><b>${label}</b>${lg.created_at?`<small>${fmtFull(lg.created_at)}</small>`:''}</div></div>`;
+  }).join('')||'<div class="logs">暂无状态记录</div>');
+  html+=`<div class="card"><div class="section-title" style="padding-left:0">🔄 整体工作状态</div><div class="timeline">${timeline}</div></div>`;
   const bp=d.breakpoints.find(x=>x.task_id===taskId&&x.status==='pending');
   if(bp){
     const fs=bp.form_schema;
@@ -1470,7 +1521,7 @@ async function openTask(taskId,roomId){
       <div class="result">${esc(task.result_full||'')}</div>
       ${task.attachments&&task.attachments.length?`<div class="logs">附件：${task.attachments.map(a=>esc(a.name)).join('、')}</div>`:''}</div>`;
   }
-  if(task.error_message)html+=`<div class="card"><div class="result" style="color:var(--danger)">❌ ${esc(task.error_message)}</div></div>`;
+  if(task.error_message)html+=`<div class="card"><div class="result" style="color:var(--danger)">❌ ${esc(task.error_message)}</div>${st==='failed'?`<div class="logs">任务下发/执行失败，尚未被工作AI真正处理。可在页面底部「重新下发」重试（需工作AI代理在线）。</div>`:''}</div>`;
   // 代码修订：版本保存与回滚控件
   if(task.agent_kind==='code'){
     const meta=task.result_meta||{};
@@ -1513,13 +1564,18 @@ async function openTask(taskId,roomId){
     html+=`<div class="card" style="background:#f3f4f6"><div style="font-size:13.5px;color:#374151">
       🔒 已结案（只读）：由 ${esc(cn)} 于 ${fmtFull(task.closed_at||task.updated_at)} 标记结案，任务卡不再可编辑或取消。</div></div>`;
   }
-  const cancellable=['queued','running','waiting_human'].includes(task.status);
+  const cancellable=['queued','running','waiting_human'].includes(st);
+  let actions='';
+  if(isHost&&st==='failed'){
+    actions+=`<button class="primary" style="width:100%" onclick="redispatchTask('${taskId}','${roomId}')">🔁 重新下发任务</button>`;
+  }
   if(isHost&&cancellable){
-    html+=`<div style="padding:0 12px 20px"><button class="dangerbtn" style="width:100%" onclick="cancelTask('${taskId}','${roomId}')">取消任务</button></div>`;
+    actions+=`<button class="dangerbtn" style="width:100%" onclick="cancelTask('${taskId}','${roomId}')">取消任务</button>`;
   }
-  if(isHost&&task.status==='finished'){
-    html+=`<div style="padding:0 12px 20px"><button class="primary" style="width:100%" onclick="closeTask('${taskId}','${roomId}')">🔒 结案（标记只读关闭）</button></div>`;
+  if(isHost&&st==='finished'){
+    actions+=`<button class="primary" style="width:100%" onclick="closeTask('${taskId}','${roomId}')">🔒 结案（标记只读关闭）</button>`;
   }
+  if(actions)html+=`<div style="padding:0 12px 20px;display:flex;flex-direction:column;gap:8px">${actions}</div>`;
   b.innerHTML=html;
   openPage('page-task');
 }
@@ -1535,6 +1591,15 @@ async function closeTask(taskId,roomId){
 async function cancelTask(taskId,roomId){
   if(!confirm('确认取消该任务？'))return;
   try{await api(`/tasks/${taskId}/cancel`,{method:'POST',body:'{}'});toast('已取消');refreshAll();goBack();}catch(e){toast(e.message);}
+}
+async function redispatchTask(taskId,roomId){
+  if(!confirm('确认重新下发该任务给工作AI代理？（状态将回到进行中，工作AI代理会重新推演）'))return;
+  try{
+    await api(`/tasks/${taskId}/redispatch`,{method:'POST',body:'{}'});
+    toast('已重新下发，任务回到进行中'); openTask(taskId,roomId);
+    const idx=roomsCache.findIndex(r=>r.room_id===roomId);
+    if(idx>=0)roomsCache[idx]=await api(`/rooms/${roomId}`);
+  }catch(e){ toast('重发失败：'+(e.message||e)); }
 }
 async function rollbackTask(taskId,roomId){
   if(!confirm('确认回滚该代码修订？仓库将还原到此任务执行前的版本快照（已保存的版本不会删除）。'))return;

@@ -43,7 +43,9 @@ async def dispatch_task(task: dict) -> tuple[bool, str]:
         pkg["theme"] = room["theme"]
     if room.get("tags"):
         pkg["tags"] = room["tags"]
-    context_package = json.dumps(pkg, ensure_ascii=False)
+    # 注意：重度Agent 的 TaskIn.context_package 要求 dict，必须下发解析后的 dict，
+    # 切勿再 json.dumps 成字符串（否则对方 pydantic 校验 422 → 下发失败 → 任务被误标 failed → 落入「已办」）。
+    context_package = pkg
     payload = {
         "task_id": task["task_id"],
         "room_id": task["room_id"],

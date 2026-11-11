@@ -271,6 +271,32 @@ def _now() -> float:
     return time.time()
 
 
+@router.post("/tasks/{task_id}/redispatch")
+async def redispatch_task(task_id: str, x_member_id: str = Header(default="")):
+    """失败/取消任务重新下发（仅主持人）。
+
+    用于「工作AI代理临时不可达 / 下发协议错误」导致任务被误标 failed 后的恢复：
+    重新 Webhook 下发，状态回到 running。仅终态 failed/canceled 可重发。
+    """
+    task = db.get_task(task_id)
+    if not task:
+        raise HTTPException(404, "任务不存在")
+    member = require_member(task["room_id"], x_member_id)
+    require_host(member)
+    if task["status"] not in ("failed", "canceled"):
+        raise HTTPException(409, f"仅失败/取消的任务可重新下发，当前状态：{task['status']}")
+    ok, msg = await dispatcher.dispatch_task(task)
+    if not ok:
+        db.update_task_status(task_id, "failed", error_message=f"重发失败: {msg}")
+        db.add_task_log(task_id, task["room_id"], "task_redispatch_failed", {"detail": msg})
+        raise HTTPException(502, f"重发失败：{msg}")
+    db.update_task_status(task_id, "running")
+    db.add_task_log(task_id, task["room_id"], "task_redispatched", {})
+    events.publish_business_notify(task["room_id"], "task_status_changed",
+                                   {"taskId": task_id, "status": "running"})
+    return {"ok": True, "task_id": task_id, "status": "running"}
+
+
 class RollbackReq(BaseModel):
     by: str | None = None
     note: str | None = None

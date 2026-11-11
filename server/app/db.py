@@ -941,8 +941,8 @@ TASK_TRANSITIONS: dict[str, set[str]] = {
     "waiting_human": {"running", "canceled", "failed"},
     "finished": {"closed"},          # 工作完成 → 可由主持人结案（只读）
     "closed": set(),                 # 终态：只读，禁止任何状态变更/取消/编辑
-    "canceled": set(),
-    "failed": set(),
+    "canceled": {"running"},         # 重新下发可恢复推演（主持人主动恢复）
+    "failed": {"running"},           # 重新下发可恢复推演（如工作AI代理临时不可达导致下发失败）
 }
 
 
